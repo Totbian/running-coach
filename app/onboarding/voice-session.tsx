@@ -1,0 +1,234 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { StepData } from "@/lib/onboarding-steps";
+
+interface VoiceSessionProps {
+  onStepUpdate: (data: StepData) => void;
+  onComplete: () => void;
+  onTranscript: (text: string) => void;
+}
+
+export function VoiceSession({
+  onStepUpdate,
+  onComplete,
+  onTranscript,
+}: VoiceSessionProps) {
+  const [status, setStatus] = useState<"connecting" | "active" | "error">("connecting");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
+
+  const handleDataChannelMessage = useCallback(
+    (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        // Handle function calls from the AI
+        if (msg.type === "response.function_call_arguments.done") {
+          const { name, arguments: args } = msg;
+          const parsed = JSON.parse(args);
+
+          if (name === "update_onboarding_data") {
+            onStepUpdate({
+              step: parsed.step,
+              data: parsed.data,
+              skipped: parsed.skipped || false,
+            });
+            // Send function call output back so AI continues
+            if (dcRef.current?.readyState === "open") {
+              dcRef.current.send(
+                JSON.stringify({
+                  type: "conversation.item.create",
+                  item: {
+                    type: "function_call_output",
+                    call_id: msg.call_id,
+                    output: JSON.stringify({ success: true }),
+                  },
+                })
+              );
+              dcRef.current.send(
+                JSON.stringify({ type: "response.create" })
+              );
+            }
+          } else if (name === "complete_onboarding") {
+            onComplete();
+            if (dcRef.current?.readyState === "open") {
+              dcRef.current.send(
+                JSON.stringify({
+                  type: "conversation.item.create",
+                  item: {
+                    type: "function_call_output",
+                    call_id: msg.call_id,
+                    output: JSON.stringify({ success: true }),
+                  },
+                })
+              );
+            }
+          }
+        }
+
+        // Handle transcription of user speech
+        if (
+          msg.type === "conversation.item.input_audio_transcription.completed"
+        ) {
+          onTranscript(msg.transcript || "");
+        }
+
+        // Track when AI is speaking
+        if (msg.type === "response.audio.delta") {
+          setIsSpeaking(true);
+        }
+        if (msg.type === "response.audio.done" || msg.type === "response.done") {
+          setIsSpeaking(false);
+        }
+      } catch {
+        // ignore parse errors for non-JSON messages
+      }
+    },
+    [onStepUpdate, onComplete, onTranscript]
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function connect() {
+      try {
+        // Create peer connection
+        const pc = new RTCPeerConnection();
+        pcRef.current = pc;
+
+        // Set up audio playback
+        const audio = new Audio();
+        audio.autoplay = true;
+        audioRef.current = audio;
+        pc.ontrack = (e) => {
+          audio.srcObject = e.streams[0];
+        };
+
+        // Get microphone access
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        pc.addTrack(stream.getTracks()[0]);
+
+        // Create data channel
+        const dc = pc.createDataChannel("oai-events");
+        dcRef.current = dc;
+
+        dc.onopen = () => {
+          if (mounted) setStatus("active");
+          // Send initial response create to kick off the conversation
+          dc.send(JSON.stringify({ type: "response.create" }));
+        };
+
+        dc.onmessage = handleDataChannelMessage;
+
+        // Create offer and send to our backend
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const response = await fetch("/api/session", {
+          method: "POST",
+          body: offer.sdp,
+          headers: { "Content-Type": "application/sdp" },
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create session");
+        }
+
+        const answerSdp = await response.text();
+        await pc.setRemoteDescription({
+          type: "answer",
+          sdp: answerSdp,
+        });
+      } catch (err) {
+        console.error("Connection error:", err);
+        if (mounted) setStatus("error");
+      }
+    }
+
+    connect();
+
+    return () => {
+      mounted = false;
+      pcRef.current?.close();
+    };
+  }, [handleDataChannelMessage]);
+
+  return (
+    <div className="flex flex-col items-center gap-4 p-6 border">
+      {/* Voice indicator */}
+      <div className="relative flex items-center justify-center w-20 h-20">
+        {status === "connecting" && (
+          <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        )}
+        {status === "active" && (
+          <>
+            <div
+              className={`absolute inset-0 bg-primary/10 rounded-full transition-transform duration-300 ${
+                isSpeaking ? "scale-100 animate-pulse" : "scale-75"
+              }`}
+            />
+            <div
+              className={`relative w-12 h-12 bg-primary rounded-full flex items-center justify-center transition-transform duration-150 ${
+                isSpeaking ? "scale-110" : "scale-100"
+              }`}
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="text-primary-foreground"
+              >
+                {isSpeaking ? (
+                  <>
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </>
+                )}
+              </svg>
+            </div>
+          </>
+        )}
+        {status === "error" && (
+          <div className="w-12 h-12 bg-destructive/10 rounded-full flex items-center justify-center">
+            <span className="text-xl">⚠️</span>
+          </div>
+        )}
+      </div>
+
+      {/* Status text */}
+      <div className="text-center">
+        {status === "connecting" && (
+          <p className="text-sm text-muted-foreground">Connecting to coach...</p>
+        )}
+        {status === "active" && (
+          <p className="text-sm text-muted-foreground">
+            {isSpeaking ? "Coach is speaking..." : "Listening..."}
+          </p>
+        )}
+        {status === "error" && (
+          <div>
+            <p className="text-sm text-destructive font-medium">Connection failed</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Check your microphone permissions and try again
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

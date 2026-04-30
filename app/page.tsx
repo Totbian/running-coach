@@ -1,4 +1,5 @@
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export default function Page() {
   return (
@@ -26,15 +27,23 @@ export default function Page() {
           Your Personal Running Coach
         </h1>
         <p className="mt-6 max-w-xl text-lg text-white/80 mx-auto">
-          Adaptive training plans that evolve with you. Whether you&apos;re chasing your first 5K or your next marathon PR, get coached by AI that understands your body and your goals.
+          Adaptive training plans that evolve with you. Whether you&apos;re chasing
+          your first 5K or your next marathon PR, get coached by AI that understands
+          your body and your goals.
         </p>
         <div className="mt-8 flex gap-4 justify-center">
-          <Button size="lg">Get Started</Button>
-          <Button variant="outline" size="lg" className="border-white text-white hover:bg-white/10">
+          <Link href="/onboarding">
+            <Button size="lg">Get Started</Button>
+          </Link>
+          <Button
+            variant="outline"
+            size="lg"
+            className="border-white text-white hover:bg-white/10"
+          >
             Learn More
           </Button>
         </div>
       </div>
     </section>
-  )
+  );
 }
