@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export default function Page() {
   return (
@@ -30,18 +31,22 @@ export default function Page() {
           your body and your goals.
         </p>
         <div className="mt-8 flex gap-4 justify-center">
-          <Button size="lg" className="relative overflow-hidden group">
-            <span className="relative z-10">Login</span>
-            <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="relative overflow-hidden group border-white text-white hover:bg-white/10"
-          >
-            <span className="relative z-10">Sign Up</span>
-            <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-          </Button>
+          <Link href="/onboarding">
+            <Button size="lg" className="relative overflow-hidden group">
+              <span className="relative z-10">Login</span>
+              <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+            </Button>
+          </Link>
+          <Link href="/onboarding">
+            <Button
+              variant="outline"
+              size="lg"
+              className="relative overflow-hidden group border-white text-white hover:bg-white/10"
+            >
+              <span className="relative z-10">Sign Up</span>
+              <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+            </Button>
+          </Link>
         </div>
       </div>
     </section>
