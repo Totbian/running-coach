@@ -18,9 +18,20 @@ export function VoiceSession({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted - AI speaks first
   const [manualMute, setManualMute] = useState(false);
+
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const isSpeakingRef = useRef(false);
+  const manualMuteRef = useRef(false);
+
+  // Stable refs for callbacks
+  const onStepUpdateRef = useRef(onStepUpdate);
+  const onCompleteRef = useRef(onComplete);
+  const onTranscriptRef = useRef(onTranscript);
+  onStepUpdateRef.current = onStepUpdate;
+  onCompleteRef.current = onComplete;
+  onTranscriptRef.current = onTranscript;
 
   // Mute/unmute the microphone track
   const setMicEnabled = useCallback((enabled: boolean) => {
@@ -30,8 +41,22 @@ export function VoiceSession({
     setIsMuted(!enabled);
   }, []);
 
-  const handleDataChannelMessage = useCallback(
-    (event: MessageEvent) => {
+  // Handle manual mute toggle
+  const toggleManualMute = useCallback(() => {
+    const newMuteState = !manualMuteRef.current;
+    manualMuteRef.current = newMuteState;
+    setManualMute(newMuteState);
+    if (newMuteState) {
+      setMicEnabled(false);
+    } else if (!isSpeakingRef.current) {
+      setMicEnabled(true);
+    }
+  }, [setMicEnabled]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    function handleMessage(event: MessageEvent) {
       try {
         const msg = JSON.parse(event.data);
 
@@ -41,7 +66,7 @@ export function VoiceSession({
           const parsed = JSON.parse(args);
 
           if (name === "update_onboarding_data") {
-            onStepUpdate({
+            onStepUpdateRef.current({
               step: parsed.step,
               data: parsed.data,
               skipped: parsed.skipped || false,
@@ -62,7 +87,7 @@ export function VoiceSession({
               );
             }
           } else if (name === "complete_onboarding") {
-            onComplete();
+            onCompleteRef.current();
             if (dcRef.current?.readyState === "open") {
               dcRef.current.send(
                 JSON.stringify({
@@ -80,44 +105,34 @@ export function VoiceSession({
 
         // Handle transcription of user speech
         if (msg.type === "conversation.item.input_audio_transcription.completed") {
-          onTranscript(msg.transcript || "");
+          onTranscriptRef.current(msg.transcript || "");
         }
 
-        // AI starts generating a response - MUTE the user
-        if (msg.type === "response.audio.delta" && !isSpeaking) {
+        // AI starts generating audio - MUTE the user
+        if (msg.type === "response.audio.delta" && !isSpeakingRef.current) {
+          isSpeakingRef.current = true;
           setIsSpeaking(true);
-          setMicEnabled(false);
+          if (audioTrackRef.current) {
+            audioTrackRef.current.enabled = false;
+          }
+          setIsMuted(true);
         }
 
-        // AI finished speaking - UNMUTE the user (unless manual mute is on)
+        // AI finished responding - UNMUTE the user (unless manual mute)
         if (msg.type === "response.done") {
+          isSpeakingRef.current = false;
           setIsSpeaking(false);
-          if (!manualMute) {
-            setMicEnabled(true);
+          if (!manualMuteRef.current) {
+            if (audioTrackRef.current) {
+              audioTrackRef.current.enabled = true;
+            }
+            setIsMuted(false);
           }
         }
       } catch {
         // ignore parse errors
       }
-    },
-    [onStepUpdate, onComplete, onTranscript, isSpeaking, manualMute, setMicEnabled]
-  );
-
-  // Handle manual mute toggle
-  const toggleManualMute = useCallback(() => {
-    const newMuteState = !manualMute;
-    setManualMute(newMuteState);
-    if (newMuteState) {
-      // User wants to mute
-      setMicEnabled(false);
-    } else if (!isSpeaking) {
-      // User wants to unmute, only allow if AI is not speaking
-      setMicEnabled(true);
     }
-  }, [manualMute, isSpeaking, setMicEnabled]);
-
-  useEffect(() => {
-    let mounted = true;
 
     async function connect() {
       try {
@@ -159,7 +174,7 @@ export function VoiceSession({
           dc.send(JSON.stringify({ type: "response.create" }));
         };
 
-        dc.onmessage = handleDataChannelMessage;
+        dc.onmessage = handleMessage;
 
         // Step 3: Create offer
         const offer = await pc.createOffer();
@@ -202,7 +217,7 @@ export function VoiceSession({
       mounted = false;
       pcRef.current?.close();
     };
-  }, [handleDataChannelMessage]);
+  }, []); // No dependencies - runs once
 
   return (
     <div className="flex flex-col items-center gap-4 p-6 border">
