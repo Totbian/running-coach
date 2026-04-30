@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { StepData } from "@/lib/onboarding-steps";
 import { FormAnalysisCapture } from "./form-analysis-capture";
+
+export interface VoiceSessionHandle {
+  injectUserMessage: (text: string) => void;
+}
 
 interface VoiceSessionProps {
   onStepUpdate: (data: StepData) => void;
@@ -10,11 +21,8 @@ interface VoiceSessionProps {
   onTranscript: (text: string) => void;
 }
 
-export function VoiceSession({
-  onStepUpdate,
-  onComplete,
-  onTranscript,
-}: VoiceSessionProps) {
+export const VoiceSession = forwardRef<VoiceSessionHandle, VoiceSessionProps>(
+  function VoiceSession({ onStepUpdate, onComplete, onTranscript }, ref) {
   const [status, setStatus] = useState<"connecting" | "active" | "error">("connecting");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted - AI speaks first
@@ -127,6 +135,28 @@ export function VoiceSession({
     }
     onStepUpdateRef.current({ step: "FORM_ANALYSIS", data: "Skipped", skipped: true });
   }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      injectUserMessage: (text: string) => {
+        const dc = dcRef.current;
+        if (!dc || dc.readyState !== "open") return;
+        dc.send(
+          JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text }],
+            },
+          })
+        );
+        dc.send(JSON.stringify({ type: "response.create" }));
+      },
+    }),
+    []
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -438,4 +468,4 @@ export function VoiceSession({
       )}
     </div>
   );
-}
+});

@@ -35,6 +35,9 @@ pnpm-debug.log*
 /credentials/
 *service-account*.json
 
+# local run log (dev only)
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
