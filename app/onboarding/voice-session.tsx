@@ -16,8 +16,19 @@ export function VoiceSession({
 }: VoiceSessionProps) {
   const [status, setStatus] = useState<"connecting" | "active" | "error">("connecting");
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // Start muted - AI speaks first
+  const [manualMute, setManualMute] = useState(false);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
+  const audioTrackRef = useRef<MediaStreamTrack | null>(null);
+
+  // Mute/unmute the microphone track
+  const setMicEnabled = useCallback((enabled: boolean) => {
+    if (audioTrackRef.current) {
+      audioTrackRef.current.enabled = enabled;
+    }
+    setIsMuted(!enabled);
+  }, []);
 
   const handleDataChannelMessage = useCallback(
     (event: MessageEvent) => {
@@ -35,7 +46,6 @@ export function VoiceSession({
               data: parsed.data,
               skipped: parsed.skipped || false,
             });
-            // Send function call output back so AI continues
             if (dcRef.current?.readyState === "open") {
               dcRef.current.send(
                 JSON.stringify({
@@ -69,25 +79,42 @@ export function VoiceSession({
         }
 
         // Handle transcription of user speech
-        if (
-          msg.type === "conversation.item.input_audio_transcription.completed"
-        ) {
+        if (msg.type === "conversation.item.input_audio_transcription.completed") {
           onTranscript(msg.transcript || "");
         }
 
-        // Track when AI is speaking
-        if (msg.type === "response.audio.delta") {
+        // AI starts generating a response - MUTE the user
+        if (msg.type === "response.audio.delta" && !isSpeaking) {
           setIsSpeaking(true);
+          setMicEnabled(false);
         }
-        if (msg.type === "response.audio.done" || msg.type === "response.done") {
+
+        // AI finished speaking - UNMUTE the user (unless manual mute is on)
+        if (msg.type === "response.done") {
           setIsSpeaking(false);
+          if (!manualMute) {
+            setMicEnabled(true);
+          }
         }
       } catch {
-        // ignore parse errors for non-JSON messages
+        // ignore parse errors
       }
     },
-    [onStepUpdate, onComplete, onTranscript]
+    [onStepUpdate, onComplete, onTranscript, isSpeaking, manualMute, setMicEnabled]
   );
+
+  // Handle manual mute toggle
+  const toggleManualMute = useCallback(() => {
+    const newMuteState = !manualMute;
+    setManualMute(newMuteState);
+    if (newMuteState) {
+      // User wants to mute
+      setMicEnabled(false);
+    } else if (!isSpeaking) {
+      // User wants to unmute, only allow if AI is not speaking
+      setMicEnabled(true);
+    }
+  }, [manualMute, isSpeaking, setMicEnabled]);
 
   useEffect(() => {
     let mounted = true;
@@ -116,7 +143,11 @@ export function VoiceSession({
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-        pc.addTrack(stream.getTracks()[0]);
+        const audioTrack = stream.getTracks()[0];
+        audioTrackRef.current = audioTrack;
+        // Start with mic DISABLED - AI speaks first
+        audioTrack.enabled = false;
+        pc.addTrack(audioTrack);
 
         // Create data channel
         const dc = pc.createDataChannel("oai-events");
@@ -124,7 +155,7 @@ export function VoiceSession({
 
         dc.onopen = () => {
           if (mounted) setStatus("active");
-          // Kick off the conversation
+          // Kick off: AI asks the first question proactively
           dc.send(JSON.stringify({ type: "response.create" }));
         };
 
@@ -222,7 +253,11 @@ export function VoiceSession({
         )}
         {status === "active" && (
           <p className="text-sm text-muted-foreground">
-            {isSpeaking ? "Coach is speaking..." : "Listening..."}
+            {isSpeaking
+              ? "🔊 Coach is speaking..."
+              : isMuted
+              ? "🔇 Muted"
+              : "🎤 Listening..."}
           </p>
         )}
         {status === "error" && (
@@ -234,6 +269,20 @@ export function VoiceSession({
           </div>
         )}
       </div>
+
+      {/* Mute button */}
+      {status === "active" && (
+        <button
+          onClick={toggleManualMute}
+          className={`mt-2 px-4 py-2 text-sm font-medium border transition-colors ${
+            manualMute
+              ? "bg-destructive/10 border-destructive/30 text-destructive"
+              : "bg-muted border-border text-foreground"
+          }`}
+        >
+          {manualMute ? "🔇 Unmute Mic" : "🎤 Mute Mic"}
+        </button>
+      )}
     </div>
   );
 }
