@@ -3,9 +3,8 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   const body = await req.text();
 
-  const sessionConfig = JSON.stringify({
-    type: "realtime",
-    model: "gpt-4o-realtime-preview",
+  const sessionConfig = {
+    model: "gpt-4o-realtime-preview-2024-12-17",
     voice: "sage",
     instructions: `You are a friendly, encouraging running coach AI doing an onboarding session. 
 You are collecting information step by step to build a personalized training plan.
@@ -14,7 +13,7 @@ Your personality: warm, concise, motivating. Like a coach who genuinely cares bu
 
 You will go through these steps IN ORDER:
 1. GOAL: Ask what their running goal is (e.g. "run a half marathon under 2 hours", "complete my first 5K", "improve my 10K time")
-2. FITNESS_HISTORY: Ask them to upload their Apple Health or fitness data. If they don't have it, ask them to describe their current fitness level and recent running history.
+2. FITNESS_HISTORY: Ask them to describe their current fitness level and recent running history (how often they run, longest recent run, typical pace).
 3. NUTRITION: Help them understand their calorie intake. Ask about foods/drinks they like, eating habits. Help estimate weekly calorie intake since most people don't know this. Give examples like "a typical lunch might be 600-800 calories".
 4. SUPPLEMENTS: Ask if they take any supplements (protein, creatine, vitamins, etc). Tell them this is optional and they can skip it.
 5. HEALTH: Ask about any health conditions, injuries, pregnancy, or physical limitations. Tell them this is optional but helps you plan safely.
@@ -26,7 +25,7 @@ RULES:
 - Keep responses SHORT (1-3 sentences max)
 - When user answers, acknowledge briefly then move to next step
 - If user says "skip" or "next", move on immediately
-- After each answer, emit a function call to update_onboarding_data with the step name and collected data
+- After each answer, call update_onboarding_data with the step name and collected data
 - When all steps are done, call complete_onboarding`,
     tools: [
       {
@@ -72,13 +71,22 @@ RULES:
     input_audio_transcription: {
       model: "gpt-4o-mini-transcribe"
     }
-  });
-
-  const fd = new FormData();
-  fd.set("sdp", body);
-  fd.set("session", sessionConfig);
+  };
 
   try {
+    // If body is empty, client wants an ephemeral key (initial handshake)
+    if (!body || body.trim().length === 0) {
+      return NextResponse.json({ error: "SDP offer required" }, { status: 400 });
+    }
+
+    // Use FormData approach to /v1/realtime/calls
+    const fd = new FormData();
+    fd.set("sdp", body);
+    fd.set("session", JSON.stringify({
+      type: "session.update",
+      session: sessionConfig,
+    }));
+
     const r = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
       headers: {
@@ -89,8 +97,11 @@ RULES:
 
     if (!r.ok) {
       const error = await r.text();
-      console.error("OpenAI error:", error);
-      return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+      console.error("OpenAI Realtime error:", r.status, error);
+      return NextResponse.json(
+        { error: "Failed to create session", details: error },
+        { status: r.status }
+      );
     }
 
     const sdp = await r.text();
@@ -99,6 +110,9 @@ RULES:
     });
   } catch (error) {
     console.error("Session creation error:", error);
-    return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to create session" },
+      { status: 500 }
+    );
   }
 }
