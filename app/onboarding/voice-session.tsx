@@ -17,13 +17,13 @@ export function VoiceSession({
   const [status, setStatus] = useState<"connecting" | "active" | "error">("connecting");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted - AI speaks first
-  const [manualMute, setManualMute] = useState(false);
+  const [manualMute, setManualMute] = useState(true);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
   const isSpeakingRef = useRef(false);
-  const manualMuteRef = useRef(false);
+  const manualMuteRef = useRef(true);
 
   // Stable refs for callbacks
   const onStepUpdateRef = useRef(onStepUpdate);
