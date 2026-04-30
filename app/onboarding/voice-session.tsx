@@ -17,7 +17,6 @@ export function VoiceSession({
   const [status, setStatus] = useState<"connecting" | "active" | "error">("connecting");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
 
   const handleDataChannelMessage = useCallback(
@@ -27,7 +26,7 @@ export function VoiceSession({
 
         // Handle function calls from the AI
         if (msg.type === "response.function_call_arguments.done") {
-          const { name, arguments: args } = msg;
+          const { name, arguments: args, call_id } = msg;
           const parsed = JSON.parse(args);
 
           if (name === "update_onboarding_data") {
@@ -43,7 +42,7 @@ export function VoiceSession({
                   type: "conversation.item.create",
                   item: {
                     type: "function_call_output",
-                    call_id: msg.call_id,
+                    call_id: call_id,
                     output: JSON.stringify({ success: true }),
                   },
                 })
@@ -60,7 +59,7 @@ export function VoiceSession({
                   type: "conversation.item.create",
                   item: {
                     type: "function_call_output",
-                    call_id: msg.call_id,
+                    call_id: call_id,
                     output: JSON.stringify({ success: true }),
                   },
                 })
@@ -95,14 +94,20 @@ export function VoiceSession({
 
     async function connect() {
       try {
-        // Create peer connection
+        // Step 1: Get ephemeral key from our backend
+        const tokenResponse = await fetch("/api/session", { method: "POST" });
+        if (!tokenResponse.ok) {
+          throw new Error("Failed to get session token");
+        }
+        const { clientSecret } = await tokenResponse.json();
+
+        // Step 2: Create peer connection
         const pc = new RTCPeerConnection();
         pcRef.current = pc;
 
         // Set up audio playback
         const audio = new Audio();
         audio.autoplay = true;
-        audioRef.current = audio;
         pc.ontrack = (e) => {
           audio.srcObject = e.streams[0];
         };
@@ -119,27 +124,37 @@ export function VoiceSession({
 
         dc.onopen = () => {
           if (mounted) setStatus("active");
-          // Send initial response create to kick off the conversation
+          // Kick off the conversation
           dc.send(JSON.stringify({ type: "response.create" }));
         };
 
         dc.onmessage = handleDataChannelMessage;
 
-        // Create offer and send to our backend
+        // Step 3: Create offer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        const response = await fetch("/api/session", {
-          method: "POST",
-          body: offer.sdp,
-          headers: { "Content-Type": "application/sdp" },
-        });
+        // Step 4: Send SDP to OpenAI directly using the ephemeral key
+        const sdpResponse = await fetch(
+          "https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${clientSecret}`,
+              "Content-Type": "application/sdp",
+            },
+            body: offer.sdp,
+          }
+        );
 
-        if (!response.ok) {
-          throw new Error("Failed to create session");
+        if (!sdpResponse.ok) {
+          const err = await sdpResponse.text();
+          console.error("OpenAI SDP error:", err);
+          throw new Error("Failed to connect to OpenAI");
         }
 
-        const answerSdp = await response.text();
+        // Step 5: Set remote description
+        const answerSdp = await sdpResponse.text();
         await pc.setRemoteDescription({
           type: "answer",
           sdp: answerSdp,
@@ -186,19 +201,9 @@ export function VoiceSession({
                 strokeWidth="2"
                 className="text-primary-foreground"
               >
-                {isSpeaking ? (
-                  <>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </>
-                ) : (
-                  <>
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </>
-                )}
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
               </svg>
             </div>
           </>

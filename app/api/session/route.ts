@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  const body = await req.text();
-
-  const sessionConfig = {
-    model: "gpt-4o-realtime-preview-2024-12-17",
-    voice: "sage",
-    instructions: `You are a friendly, encouraging running coach AI doing an onboarding session. 
+export async function POST() {
+  try {
+    const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-realtime-preview-2024-12-17",
+        voice: "sage",
+        instructions: `You are a friendly, encouraging running coach AI doing an onboarding session. 
 You are collecting information step by step to build a personalized training plan.
 
 Your personality: warm, concise, motivating. Like a coach who genuinely cares but doesn't waste time.
@@ -27,86 +32,65 @@ RULES:
 - If user says "skip" or "next", move on immediately
 - After each answer, call update_onboarding_data with the step name and collected data
 - When all steps are done, call complete_onboarding`,
-    tools: [
-      {
-        type: "function",
-        name: "update_onboarding_data",
-        description: "Updates the onboarding UI with collected data from the current step",
-        parameters: {
-          type: "object",
-          properties: {
-            step: {
-              type: "string",
-              enum: ["GOAL", "FITNESS_HISTORY", "NUTRITION", "SUPPLEMENTS", "HEALTH", "MEDICAL_HISTORY", "FORM_ANALYSIS"],
-              description: "The current onboarding step being completed"
-            },
-            data: {
-              type: "string",
-              description: "Summary of what the user provided for this step"
-            },
-            skipped: {
-              type: "boolean",
-              description: "Whether the user skipped this step"
+        tools: [
+          {
+            type: "function",
+            name: "update_onboarding_data",
+            description: "Updates the onboarding UI with collected data from the current step",
+            parameters: {
+              type: "object",
+              properties: {
+                step: {
+                  type: "string",
+                  enum: ["GOAL", "FITNESS_HISTORY", "NUTRITION", "SUPPLEMENTS", "HEALTH", "MEDICAL_HISTORY", "FORM_ANALYSIS"],
+                  description: "The current onboarding step being completed"
+                },
+                data: {
+                  type: "string",
+                  description: "Summary of what the user provided for this step"
+                },
+                skipped: {
+                  type: "boolean",
+                  description: "Whether the user skipped this step"
+                }
+              },
+              required: ["step", "data", "skipped"]
             }
           },
-          required: ["step", "data", "skipped"]
-        }
-      },
-      {
-        type: "function",
-        name: "complete_onboarding",
-        description: "Called when all onboarding steps are complete",
-        parameters: {
-          type: "object",
-          properties: {
-            summary: {
-              type: "string",
-              description: "Brief summary of the user's profile"
+          {
+            type: "function",
+            name: "complete_onboarding",
+            description: "Called when all onboarding steps are complete",
+            parameters: {
+              type: "object",
+              properties: {
+                summary: {
+                  type: "string",
+                  description: "Brief summary of the user's profile"
+                }
+              },
+              required: ["summary"]
             }
-          },
-          required: ["summary"]
+          }
+        ],
+        input_audio_transcription: {
+          model: "gpt-4o-mini-transcribe"
         }
-      }
-    ],
-    input_audio_transcription: {
-      model: "gpt-4o-mini-transcribe"
-    }
-  };
-
-  try {
-    // If body is empty, client wants an ephemeral key (initial handshake)
-    if (!body || body.trim().length === 0) {
-      return NextResponse.json({ error: "SDP offer required" }, { status: 400 });
-    }
-
-    // Use FormData approach to /v1/realtime/calls
-    const fd = new FormData();
-    fd.set("sdp", body);
-    fd.set("session", JSON.stringify({
-      type: "session.update",
-      session: sessionConfig,
-    }));
-
-    const r = await fetch("https://api.openai.com/v1/realtime/calls", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: fd,
+      }),
     });
 
     if (!r.ok) {
       const error = await r.text();
-      console.error("OpenAI Realtime error:", r.status, error);
+      console.error("OpenAI session error:", r.status, error);
       return NextResponse.json(
         { error: "Failed to create session", details: error },
         { status: r.status }
       );
     }
 
-    const sdp = await r.text();
-    return new Response(sdp, {
-      headers: { "Content-Type": "application/sdp" },
+    const data = await r.json();
+    return NextResponse.json({
+      clientSecret: data.client_secret.value,
     });
   } catch (error) {
     console.error("Session creation error:", error);
