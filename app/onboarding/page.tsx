@@ -74,25 +74,25 @@ export default function OnboardingPage() {
             </div>
           ) : isComplete ? (
             /* Complete screen */
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
               <div className="text-6xl mb-6">✅</div>
               <h2 className="text-3xl font-bold mb-3">You&apos;re All Set!</h2>
               <p className="text-muted-foreground max-w-md mb-8">
                 I have everything I need to build your personalized training plan.
                 Let&apos;s get you to the finish line.
               </p>
-              <div className="grid gap-3 w-full max-w-md">
+              <div className="grid gap-3 w-full max-w-lg">
                 {completedSteps.map((step) => {
                   const stepInfo = ONBOARDING_STEPS.find((s) => s.id === step.step);
                   return (
                     <div
                       key={step.step}
-                      className="flex items-center gap-3 p-3 border text-left"
+                      className="flex items-start gap-3 p-3 border text-left overflow-hidden"
                     >
-                      <span className="text-xl">{stepInfo?.icon}</span>
-                      <div className="flex-1 min-w-0">
+                      <span className="text-xl shrink-0">{stepInfo?.icon}</span>
+                      <div className="flex-1 min-w-0 overflow-hidden">
                         <p className="text-sm font-medium">{stepInfo?.title}</p>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground break-words line-clamp-2">
                           {step.skipped ? "Skipped" : step.data}
                         </p>
                       </div>
