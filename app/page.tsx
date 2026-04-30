@@ -4,16 +4,15 @@ import Link from "next/link";
 export default function Page() {
   return (
     <section className="relative flex min-h-svh flex-col items-center justify-center px-6 text-center overflow-hidden">
-      {/* YouTube Background Video - scaled up to crop YouTube UI */}
-      <div className="absolute inset-0 pointer-events-none">
-        <iframe
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.78vh] min-w-full min-h-full scale-125"
-          src="https://www.youtube.com/embed/LJkA0UnW-64?autoplay=1&mute=1&loop=1&playlist=LJkA0UnW-64&controls=0&showinfo=0&rel=0&start=0&end=110&modestbranding=1&playsinline=1"
-          title="Background video"
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-        />
-      </div>
+      {/* Background Video */}
+      <video
+        className="absolute inset-0 w-full h-full object-cover"
+        src="/hero-bg.mp4"
+        autoPlay
+        muted
+        loop
+        playsInline
+      />
 
       {/* Dark overlay for text readability */}
       <div className="absolute inset-0 bg-black/60" />
