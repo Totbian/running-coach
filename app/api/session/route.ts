@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { USER_CONFIG } from "@/lib/user-config";
 
 export async function POST() {
   try {
+    const today = new Date().toISOString().slice(0, 10);
     const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
@@ -18,6 +20,11 @@ Your style: Direct. Fast. No fluff. You don't coddle. You push. You believe pain
 
 You are doing an onboarding session to collect info for a personalized training plan.
 
+CONTEXT:
+- Today's date: ${today}
+- User home: ${USER_CONFIG.homeAddress}
+- User timezone: ${USER_CONFIG.timezone}
+
 Go through these steps IN ORDER:
 1. GOAL: Ask what their running goal is. Be fired up about it. React like it's achievable but they'll need to earn it.
 2. FITNESS_HISTORY: Ask about their current fitness - how often they run, longest recent run, typical pace. No judgment, just data collection. But be blunt: "Give it to me straight."
@@ -26,6 +33,14 @@ Go through these steps IN ORDER:
 5. HEALTH: Ask about any injuries, conditions, or limitations. Frame it as "I need to know what we're working around so I don't break you."
 6. MEDICAL_HISTORY: Ask about past injuries or surgeries relevant to running. Keep it brief.
 7. FORM_ANALYSIS: Offer the 30-second video form check. Sell it: "This is where most runners leave free speed on the table."
+   - If they agree: call start_form_analysis to open the camera. The user will record 30s of running. After they finish, you will receive video frames as images. Analyze their form (cadence, posture, foot strike, arm swing, hip drop, knee drive) and give 2-3 concrete pieces of feedback. Then call update_onboarding_data with step="FORM_ANALYSIS" and a 1-2 sentence summary of the key findings.
+   - If they skip: call update_onboarding_data with skipped=true and move on.
+
+After all 7 steps are collected, you may help the user schedule training runs and plan routes:
+- Use find_free_slots to look up open windows in the user's Google Calendar.
+- Use create_calendar_event to schedule a specific training run. Use full ISO datetimes in ${USER_CONFIG.timezone} (e.g. 2026-05-01T07:00:00+02:00).
+- Use plan_route to design a running route — either point-to-point ("destination") or a distance-based loop from home ("distance_meters" with optional "bearing_degrees", where 0=N, 90=E, 180=S, 270=W).
+- Always confirm with the user before creating calendar events.
 
 RULES:
 - Ask ONE question at a time
@@ -64,6 +79,16 @@ RULES:
           },
           {
             type: "function",
+            name: "start_form_analysis",
+            description: "Opens the camera so the user can record a 30-second clip of their running form. After recording, video frames will be sent back as images for you to analyze.",
+            parameters: {
+              type: "object",
+              properties: {},
+              required: []
+            }
+          },
+          {
+            type: "function",
             name: "complete_onboarding",
             description: "Called when all onboarding steps are complete",
             parameters: {
@@ -75,6 +100,51 @@ RULES:
                 }
               },
               required: ["summary"]
+            }
+          },
+          {
+            type: "function",
+            name: "find_free_slots",
+            description: "Find open time windows in the user's Google Calendar suitable for scheduling training runs. Returns a list of free slots.",
+            parameters: {
+              type: "object",
+              properties: {
+                from_date: { type: "string", description: "ISO date or datetime for the start of the search window (e.g. '2026-05-01' or '2026-05-01T00:00:00Z')" },
+                to_date: { type: "string", description: "ISO date or datetime for the end of the search window" },
+                duration_minutes: { type: "number", description: "Desired length of each free slot in minutes (e.g. 60 for a 1-hour run)" },
+                earliest_hour: { type: "number", description: "Earliest hour of day to consider, 0-23. Defaults to 6 (i.e. 6am)." },
+                latest_hour: { type: "number", description: "Latest hour of day to consider, 0-23. Defaults to 21 (i.e. 9pm)." }
+              },
+              required: ["from_date", "to_date", "duration_minutes"]
+            }
+          },
+          {
+            type: "function",
+            name: "create_calendar_event",
+            description: "Create a training session event in the user's Google Calendar. Confirm timing with the user first.",
+            parameters: {
+              type: "object",
+              properties: {
+                title: { type: "string", description: "Event title, e.g. '5km easy run' or 'Long run — 12km'" },
+                description: { type: "string", description: "Optional notes about pace, target distance, intervals, etc." },
+                start: { type: "string", description: "ISO datetime when the run starts, including timezone offset (e.g. '2026-05-01T07:00:00+02:00')" },
+                end: { type: "string", description: "ISO datetime when the run ends" },
+                location: { type: "string", description: "Optional location/route description" }
+              },
+              required: ["title", "start", "end"]
+            }
+          },
+          {
+            type: "function",
+            name: "plan_route",
+            description: "Plan a running route from the user's home in Barcelona. Provide EITHER 'destination' (for point-to-point) OR 'distance_meters' (for a loop run from home).",
+            parameters: {
+              type: "object",
+              properties: {
+                destination: { type: "string", description: "Destination address or landmark (e.g. 'Sagrada Familia, Barcelona', 'Park Guell'). Use for point-to-point routes." },
+                distance_meters: { type: "number", description: "Target loop distance in meters (e.g. 5000 for a 5km run). Use instead of destination for a loop run from home." },
+                bearing_degrees: { type: "number", description: "Compass bearing for the loop direction: 0=N, 90=E, 180=S, 270=W. Only used with distance_meters. Defaults to 0." }
+              }
             }
           }
         ],

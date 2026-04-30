@@ -31,6 +31,10 @@ pnpm-debug.log*
 # env files
 .env*.local
 
+# google service account credentials
+/credentials/
+*service-account*.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
